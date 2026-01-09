@@ -1,0 +1,14 @@
+# Repository structure
+.env
+sessions/
+data/
+cache/
+logs/
+*.pyc
+__pycache__/
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
