@@ -220,10 +220,109 @@ async def on_admin_restart(client: Client, message: Message):
     # This would require process manager support (systemd, supervisor, etc.)
 
 
+@admin_only
+async def on_admin_source_logs(client: Client, message: Message):
+    """
+    Handle /admin_source_logs [lines] - View recent logs filtered for channel forwarder.
+
+    Usage: /admin_source_logs 100
+    """
+    user = message.from_user
+    text_parts = message.text.split()
+    lines = 200
+    if len(text_parts) > 1:
+        try:
+            lines = int(text_parts[1])
+        except ValueError:
+            await message.reply_text("Usage: /admin_source_logs [number_of_lines]", )
+            return
+
+    try:
+        raw = get_recent_logs(lines * 5)  # get more lines to filter
+        # Filter lines that mention Channel Forwarder or terabox
+        keep = []
+        for ln in raw.splitlines():
+            if "Channel Forwarder" in ln or "Channel Forwarder]" in ln or "terabox" in ln.lower() or "forwarder" in ln.lower():
+                keep.append(ln)
+        content = "\n".join(keep[-lines:]) if keep else "No recent channel-forwarder logs found."
+
+        if len(content) > 4000:
+            import tempfile
+            from pathlib import Path
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.log', delete=False) as f:
+                f.write(content)
+                temp_path = f.name
+
+            await client.send_document(
+                chat_id=user.id,
+                document=temp_path,
+                caption=f"📋 Channel Forwarder Logs (filtered, last {lines} entries)"
+            )
+            Path(temp_path).unlink()
+        else:
+            await message.reply_text(f"```\n{content}\n```", )
+
+        log_action(user.id, "admin_source_logs_viewed", f"lines={lines}")
+    except Exception as e:
+        await message.reply_text(f"❌ Error retrieving source logs: {str(e)}")
+        log_action(user.id, "admin_source_logs_error", str(e), "ERROR")
+
+
+@admin_only
+async def on_admin_source_status(client: Client, message: Message):
+    """
+    Handle /admin_source_status - Shows recent cached backups and their status.
+    """
+    user = message.from_user
+
+    try:
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, download_id, filename, filesize, backup_channel_id, backup_message_id, image_src, created_at"
+            " FROM cached_backups ORDER BY created_at DESC LIMIT 20"
+        )
+        rows = cursor.fetchall()
+        conn.close()
+
+        if not rows:
+            await message.reply_text("No cached backups found.")
+            return
+
+        lines = []
+        for r in rows:
+            lines.append(
+                f"ID:{r['id']} | file:{r['filename']} | size:{format_bytes(r['filesize'] or 0)} | backup: {r['backup_channel_id']}/{r['backup_message_id']} | image:{(r['image_src'] or '')[:40]} | at:{r['created_at']}"
+            )
+
+        text = "\n".join(lines)
+        if len(text) > 4000:
+            import tempfile
+            from pathlib import Path
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+                f.write(text)
+                temp_path = f.name
+
+            await client.send_document(chat_id=user.id, document=temp_path, caption="Recent cached backups")
+            Path(temp_path).unlink()
+        else:
+            await message.reply_text(f"```\n{text}\n```", )
+
+        log_action(user.id, "admin_source_status_viewed")
+    except Exception as e:
+        await message.reply_text(f"❌ Error retrieving source status: {str(e)}")
+        log_action(user.id, "admin_source_status_error", str(e), "ERROR")
+
+
 def register_admin_commands(app: Client):
     """Register all admin commands."""
     app.on_message(filters.command("admin") & filters.private)(on_admin_panel)
-    # Note: Subcommands can be handled by parsing message.text in handlers
+    app.on_message(filters.command("admin_log") & filters.private)(on_admin_log)
+    app.on_message(filters.command("admin_stats") & filters.private)(on_admin_stats)
+    app.on_message(filters.command("admin_clear_queue") & filters.private)(on_admin_clear_queue)
+    app.on_message(filters.command("admin_restart") & filters.private)(on_admin_restart)
+    app.on_message(filters.command("admin_source_logs") & filters.private)(on_admin_source_logs)
+    app.on_message(filters.command("admin_source_status") & filters.private)(on_admin_source_status)
 
 
 # Helper function for formatting bytes (imported from helpers would be better)

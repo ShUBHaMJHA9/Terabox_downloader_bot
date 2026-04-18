@@ -99,3 +99,30 @@ def extract_url_from_text(text: str) -> str:
     if match:
         return match.group(0)
     return ""
+
+
+def render_progress_text(title: str, percent: int, downloaded: int, total: int, speed_bytes: float, eta_seconds: int, bar_length: int = 20) -> str:
+    """
+    Render a compact, attractive progress text block for Telegram.
+
+    Args:
+        title: Title line (e.g., 'Download Progress')
+        percent: Progress percent (0-100)
+        downloaded: Downloaded bytes
+        total: Total bytes
+        speed_bytes: Speed in bytes/sec
+        eta_seconds: Estimated seconds remaining
+        bar_length: Characters in progress bar
+
+    Returns:
+        Formatted markdown string
+    """
+    filled = int((percent / 100) * bar_length)
+    empty = max(bar_length - filled, 0)
+    bar = "█" * filled + "░" * empty
+    speed_mb = speed_bytes / (1024 * 1024) if speed_bytes is not None else 0.0
+    return (
+        f"🔹 *{title}*\n\n"
+        f"{percent}%   [{bar}]\n"
+        f"{format_bytes(downloaded)} / {format_bytes(total)} • {speed_mb:.2f} MB/s • ETA: {format_seconds(int(eta_seconds))}"
+    )

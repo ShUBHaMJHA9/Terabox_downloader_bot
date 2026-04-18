@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     terabox_channel: int = Field(default=0, alias="TERABOX_CHANNEL")
     force_join_channel: int = Field(default=0, alias="FORCE_JOIN_CHANNEL")
     target_channel: int = Field(default=0, alias="TARGET_CHANNEL")
+    image_source_group: int = Field(default=0, alias="IMAGE_SOURCE_GROUP")
+    image_source_channel: int = Field(default=0, alias="IMAGE_SOURCE_CHANNEL")
+    public_channel_id: int = Field(default=0, alias="PUBLIC_CHANNEL_ID")
     source_channels: str = Field(default="", alias="SOURCE_CHANNELS")  # Comma-separated string
     source_channels_list: List[int] = Field(default=[], exclude=True)  # Parsed list
     database_channel: int = Field(default=0, alias="DATABASE_CHANNEL")  # Backup storage channel
@@ -50,6 +53,8 @@ class Settings(BaseSettings):
     # ============ Downloader Configuration ============
     stream_worker: str = Field(default="", alias="STREAM_WORKER")
     terabox_api_v1: str = Field(default="", alias="TERABOX_API_V1")
+    aria2_connections: int = Field(default=16, alias="ARIA2_CONNECTIONS")
+    parallel_threads: int = Field(default=8, alias="PARALLEL_THREADS")
     
     # Legacy support
     cloudflare_worker_url: str = Field(default="", alias="CLOUDFLARE_WORKER_URL")
@@ -69,6 +74,8 @@ class Settings(BaseSettings):
     # ============ Database Configuration ============
     # MongoDB
     mongo_uri: str = Field(default="", alias="MONGO_URI")
+    # External MySQL (optional)
+    mysql_database_url: str = Field(default="", alias="MYSQL_DATABASE_URL")
     
     # PostgreSQL - Supabase
     database_url: str = Field(default="", alias="DATABASE_URL")
@@ -95,7 +102,9 @@ class Settings(BaseSettings):
     forward_channel_id: int = Field(default=0, alias="FORWARD_CHANNEL_ID")
     enable_file_caching: bool = Field(default=True, alias="ENABLE_FILE_CACHING")
     cache_directory: str = Field(default="./cache", alias="CACHE_DIRECTORY")
+    parallel_processing: bool = Field(default=True, alias="PARALLEL_PROCESSING")
     debug: bool = Field(default=False, alias="DEBUG")
+    enable_startup_processing: bool = Field(default=False, alias="ENABLE_STARTUP_PROCESSING")
 
     # ============ Timeout & Limits ============
     download_timeout: int = Field(default=3600, alias="DOWNLOAD_TIMEOUT")
@@ -159,9 +168,22 @@ class Settings(BaseSettings):
         
         # Parse source_channels string to list
         if self.source_channels:
-            self.source_channels_list = [
-                int(id_.strip()) for id_ in self.source_channels.split(",") if id_.strip()
-            ]
+            self.source_channels_list = []
+            for channel_id in self.source_channels.split(","):
+                channel_id = channel_id.strip()
+                if channel_id:
+                    try:
+                        self.source_channels_list.append(int(channel_id))
+                    except ValueError:
+                        raise RuntimeError(
+                            f"❌ Invalid SOURCE_CHANNELS value: '{channel_id}'\n"
+                            f"Expected numeric channel ID (e.g., -1003615834886)\n\n"
+                            f"For private channels, use the numeric ID:\n"
+                            f"1. Forward a message from your private channel\n"
+                            f"2. The bot will log: 'chat_id=XXXXX' (copy this number)\n"
+                            f"3. Update .env: SOURCE_CHANNELS=XXXXX\n\n"
+                            f"Or run: python get_channel_id.py"
+                        )
 
     @property
     def app_dirs(self):

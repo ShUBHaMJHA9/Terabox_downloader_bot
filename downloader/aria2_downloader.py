@@ -26,7 +26,11 @@ class Aria2Downloader:
     async def download(
         url: str,
         output_path: Path,
-        progress_callback: Optional[Callable] = None
+        progress_callback: Optional[Callable] = None,
+        max_connections: int = 16,
+        split_count: int = 16,
+        max_conn_per_server: int = 4,
+        min_split_size: str = "1M"
     ) -> bool:
         """
         Download file using aria2c.
@@ -55,12 +59,12 @@ class Aria2Downloader:
             cmd = [
                 "aria2c",
                 url,
-                "-x", "16",                           # 16 connections
-                "-k", "1M",                           # 1MB min per connection
-                "-s", "16",                           # 16 simultaneous
-                "--max-connection-per-server=4",      # 4 per server
-                "--split=16",                         # 16 parts
-                "--min-split-size=1M",                # 1MB min per part
+                "-x", str(max_connections),            # connections
+                "-k", str(min_split_size),            # min per connection
+                "-s", str(split_count),               # simultaneous
+                f"--max-connection-per-server={max_conn_per_server}",
+                "--split", str(split_count),          # parts
+                "--min-split-size", str(min_split_size),
                 "--lowest-speed-limit=0",             # no speed limit
                 "--follow-metalink=mem",              # follow metalinks
                 "--allow-overwrite=true",             # overwrite output
@@ -71,7 +75,7 @@ class Aria2Downloader:
             ]
             
             logger.info(f"🚀 Starting aria2c download: {url}")
-            logger.info(f"📊 Using 16 parallel connections for maximum speed")
+            logger.info(f"📊 Using {max_connections} parallel connections for aria2c")
             
             process = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -110,7 +114,11 @@ class Aria2Downloader:
 async def aria2_download(
     url: str,
     output_path: Path,
-    progress_callback: Optional[Callable] = None
+    progress_callback: Optional[Callable] = None,
+    max_connections: int = 16,
+    split_count: int = 16,
+    max_conn_per_server: int = 4,
+    min_split_size: str = "1M"
 ) -> bool:
     """
     Convenience function for aria2c downloading.
@@ -123,8 +131,17 @@ async def aria2_download(
     Returns:
         True if successful
     """
+    # Convenience wrapper that forwards advanced options to the downloader
     if not Aria2Downloader.is_available():
         logger.warning("aria2c not available")
         return False
-    
-    return await Aria2Downloader.download(url, output_path, progress_callback)
+
+    return await Aria2Downloader.download(
+        url=url,
+        output_path=output_path,
+        progress_callback=progress_callback,
+        max_connections=max_connections,
+        split_count=split_count,
+        max_conn_per_server=max_conn_per_server,
+        min_split_size=min_split_size
+    )

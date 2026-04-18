@@ -132,6 +132,35 @@ class TelegramUploader:
             logger.error(f"Forward error: {e}")
             return None
 
+    async def copy_message_to_channel(
+        self,
+        from_chat_id: int,
+        message_id: int,
+        channel_id: int
+    ) -> Optional[Message]:
+        """
+        Copy message to channel without re-uploading (server-side copy).
+
+        Args:
+            from_chat_id: Source chat ID
+            message_id: Message ID to copy
+            channel_id: Destination channel ID
+
+        Returns:
+            Copied message or None
+        """
+        try:
+            message = await self.client.copy_message(
+                chat_id=channel_id,
+                from_chat_id=from_chat_id,
+                message_id=message_id
+            )
+            logger.info(f"Message copied to channel {channel_id}")
+            return message
+        except Exception as e:
+            logger.error(f"Copy message error: {e}")
+            return None
+
     async def edit_message_text(
         self,
         chat_id: int,

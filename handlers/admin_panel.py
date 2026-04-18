@@ -409,19 +409,56 @@ def register_admin_panel(app: Client):
     
     @app.on_message(filters.command("admin") & filters.private)
     async def admin_command(client: Client, message: Message):
-        """Admin panel command."""
+        """Admin panel command - show verification button first."""
+        # If user sent '/admin verify' (text) attempt backend verification immediately
+        parts = (message.text or "").split()
         admin_ids = [int(aid) for aid in settings.admin_ids.split(",") if aid.strip()]
-        if message.from_user.id not in admin_ids:
-            await message.reply_text(
-                "❌ *Access Denied*",
-                parse_mode=enums.ParseMode.MARKDOWN
-            )
-            return
-        
-        await admin_menu(client, message)
+        admin_username = (settings.admin_username or "").lstrip("@")
+
+        if len(parts) > 1 and parts[1].lower() in ("verify", "verify_admin"):
+            user = message.from_user
+            if user.id in admin_ids or (admin_username and user.username and user.username.lower() == admin_username.lower()):
+                await admin_menu(client, message)
+                return
+            else:
+                await message.reply_text("❌ Access Denied — You are not an admin.", parse_mode=enums.ParseMode.MARKDOWN)
+                return
+
+        # Otherwise show a verification prompt with a stylish button
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔐 Verify Admin", callback_data="admin_verify")],
+            [InlineKeyboardButton("❌ Cancel", callback_data="admin_close")]
+        ])
+
+        verify_text = "🛡️ *Admin Access Required*\n\nTap the button below to verify your admin identity and open the control panel.\n\nOr send `/admin verify` to verify via command."
+
+        await message.reply_text(
+            verify_text,
+            parse_mode=enums.ParseMode.MARKDOWN,
+            reply_markup=keyboard
+        )
     
     @app.on_callback_query()
     async def admin_callback(client: Client, callback_query: CallbackQuery):
         """Handle all admin callbacks."""
         if callback_query.data.startswith("admin_"):
+            # special case: verify
+            if callback_query.data == "admin_verify":
+                user = callback_query.from_user
+                admin_ids = [int(aid) for aid in settings.admin_ids.split(",") if aid.strip()]
+                admin_username = (settings.admin_username or "").lstrip("@")
+
+                if user.id in admin_ids or (admin_username and user.username and user.username.lower() == admin_username.lower()):
+                    # delete verification message then show menu
+                    try:
+                        await callback_query.message.delete()
+                    except Exception:
+                        pass
+                    await admin_menu(client, callback_query.message)
+                    await callback_query.answer("✅ Verified — Admin menu opened")
+                    return
+                else:
+                    await callback_query.answer("❌ Access Denied — Not an admin", show_alert=True)
+                    return
+
             await handle_admin_callback(client, callback_query)
