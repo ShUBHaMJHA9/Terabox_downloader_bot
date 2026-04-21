@@ -1,0 +1,87 @@
+2026-04-21 17:08:33 - [32mINFO[0m - Database initialized successfully
+2026-04-21 17:08:33 - [32mINFO[0m - ==================================================
+2026-04-21 17:08:33 - [32mINFO[0m - TeraBox Downloader Bot v1.0.0
+2026-04-21 17:08:33 - [32mINFO[0m - ==================================================
+2026-04-21 17:08:33 - [32mINFO[0m - ✅ User account client configured for accessing message history
+2026-04-21 17:08:33 - [32mINFO[0m - Registering command handlers...
+2026-04-21 17:08:33 - [32mINFO[0m - [DEBUG] Registered debug message logger (settings.debug=True)
+2026-04-21 17:08:33 - [32mINFO[0m - Registering admin handlers...
+2026-04-21 17:08:33 - [32mINFO[0m - Registering admin panel handlers...
+2026-04-21 17:08:33 - [32mINFO[0m - Registering download handlers...
+2026-04-21 17:08:33 - [32mINFO[0m - Registering channel forwarder handlers...
+2026-04-21 17:08:33 - [32mINFO[0m - ✅ Registering channel forwarder for 3 source channel(s): [-1003855414575, -1001778765169, -1003986111425]
+2026-04-21 17:08:33 - [32mINFO[0m -    → Target channel: -1003934387295
+2026-04-21 17:08:33 - [32mINFO[0m -    → Database/Backup channel: -1003764543274
+2026-04-21 17:08:33 - [32mINFO[0m - ✅ Channel forwarder handlers registered successfully
+2026-04-21 17:08:33 - [32mINFO[0m - Registering group processor handlers...
+2026-04-21 17:08:33 - [32mINFO[0m - [GroupProcessor] Registering handler for group: -1003936826972
+2026-04-21 17:08:33 - [32mINFO[0m - All handlers registered successfully
+2026-04-21 17:08:33 - [32mINFO[0m - Initializing TeraBox API...
+2026-04-21 17:08:33 - [32mINFO[0m - TeraBox API initialized: https://api-download-backend.vercel.app
+2026-04-21 17:08:34 - [32mINFO[0m - ✅ Bot started successfully!
+2026-04-21 17:08:34 - [32mINFO[0m - Bot username: @terabox_downloader_aibot
+2026-04-21 17:08:34 - [32mINFO[0m - Bot ID: 8308271074
+2026-04-21 17:08:34 - [32mINFO[0m - Admins: 8027583669
+2026-04-21 17:08:36 - [32mINFO[0m - [StartupProcessor] 🔐 Starting user account to access message history...
+2026-04-21 17:08:38 - [32mINFO[0m - [StartupProcessor] ✅ User account connected
+2026-04-21 17:08:38 - [32mINFO[0m - [StartupProcessor] 🔍 Processing ALL historical messages from source channels...
+
+2026-04-21 17:08:38 - [32mINFO[0m - [StartupProcessor] 📚 Starting to fetch ALL messages from -1003855414575...
+2026-04-21 17:08:38 - [32mINFO[0m - [StartupProcessor] ⏳ This may take a while if there are many messages...
+2026-04-21 17:08:38 - [32mINFO[0m - [ChannelForwarder] 📚 Processing messages from channel -1003855414575...
+2026-04-21 17:08:38 - [32mINFO[0m - [DB] Loaded 0 already-processed message IDs for chat -1003855414575
+2026-04-21 17:08:38 - [32mINFO[0m - [ChannelForwarder] 🚀 Found 0 already-processed messages in DB
+2026-04-21 17:08:38 - [32mINFO[0m - [ChannelForwarder] 🔐 Resolving channel entity -1003855414575...
+2026-04-21 17:08:38 - [33mWARNING[0m - [ChannelForwarder] ⚠️  Failed to resolve channel: Peer id invalid: -1003855414575
+2026-04-21 17:08:38 - [32mINFO[0m - [ChannelForwarder] 🔄 Trying alternate resolution via dialogs...
+2026-04-21 17:08:40 - [32mINFO[0m - [ChannelForwarder] ✅ Found in dialogs: Yaha Hai Sb Videos😁🥵🥵
+2026-04-21 17:08:40 - [32mINFO[0m - [ChannelForwarder] 🔄 Collecting message IDs...
+2026-04-21 17:08:41 - [32mINFO[0m - [ChannelForwarder] ✅ Found 141 messages total
+2026-04-21 17:08:41 - [32mINFO[0m - [ChannelForwarder] 📊 NEW messages to process: 141 (skipped 0 already-processed)
+2026-04-21 17:08:41 - [32mINFO[0m - [ChannelForwarder] 🔄 Processing 141 new messages one-by-one (oldest first)...
+2026-04-21 17:08:41 - [32mINFO[0m - [ChannelForwarder] 📥 Fetch → 🔗 Extract → 💾 Download → 📤 Upload → ✅ Mark
+
+2026-04-21 17:08:41 - [32mINFO[0m - [ChannelForwarder] Message details: chat=-1003855414575 msg=1 media=[] text=0 chars
+2026-04-21 17:08:41 - [32mINFO[0m - [ChannelForwarder] Text-extracted links: 0 found
+2026-04-21 17:08:41 - [32mINFO[0m - [ChannelForwarder] Checking message entities for URLs...
+2026-04-21 17:08:41 - [32mINFO[0m - [ChannelForwarder] Total entities: 0
+2026-04-21 17:08:41 - [32mINFO[0m - [ChannelForwarder] No TeraBox links found in message - marking as processed anyway
+2026-04-21 17:08:41 - [32mINFO[0m - [ChannelForwarder] Message details: chat=-1003855414575 msg=3498 media=['📷 PHOTO'] text=215 chars
+2026-04-21 17:08:41 - [32mINFO[0m - [ChannelForwarder] Text-extracted links: 1 found
+2026-04-21 17:08:41 - [32mINFO[0m - [ChannelForwarder] ✅ Found 1 TeraBox link(s)
+2026-04-21 17:08:41 - [32mINFO[0m - [ChannelForwarder] Processing link 1/1: https://1024terabox.com/s/1CyGUzcFI6DXYQLy1aQ_Bag
+2026-04-21 17:08:41 - [32mINFO[0m - [Channel Forwarder] Processing TeraBox link: https://1024terabox.com/s/1CyGUzcFI6DXYQLy1aQ_Bag
+2026-04-21 17:08:41 - [32mINFO[0m - [Channel Forwarder] Source message ID: 3498, Chat: -1003855414575
+2026-04-21 17:08:41 - [32mINFO[0m - [TeraBox API] Fetching download info for: https://1024terabox.com/s/1CyGUzcFI6DXYQLy1aQ_Bag
+2026-04-21 17:09:04 - [32mINFO[0m - [TeraBox API] ✅ Got download info: None (0 bytes)
+2026-04-21 17:09:04 - [33mWARNING[0m - [Channel Forwarder] Failed to fetch info from TeraBox API
+2026-04-21 17:09:04 - [33mWARNING[0m - [ChannelForwarder] ⚠️  1/1 link(s) failed - message will retry on next restart
+2026-04-21 17:09:04 - [32mINFO[0m - [ChannelForwarder] Message details: chat=-1003855414575 msg=3499 media=['📷 PHOTO'] text=215 chars
+2026-04-21 17:09:04 - [32mINFO[0m - [ChannelForwarder] Text-extracted links: 1 found
+2026-04-21 17:09:04 - [32mINFO[0m - [ChannelForwarder] ✅ Found 1 TeraBox link(s)
+2026-04-21 17:09:04 - [32mINFO[0m - [ChannelForwarder] Processing link 1/1: https://1024terabox.com/s/1dorWFVuV67zUYIlTUkhdCg
+2026-04-21 17:09:04 - [32mINFO[0m - [Channel Forwarder] Processing TeraBox link: https://1024terabox.com/s/1dorWFVuV67zUYIlTUkhdCg
+2026-04-21 17:09:04 - [32mINFO[0m - [Channel Forwarder] Source message ID: 3499, Chat: -1003855414575
+2026-04-21 17:09:04 - [32mINFO[0m - [TeraBox API] Fetching download info for: https://1024terabox.com/s/1dorWFVuV67zUYIlTUkhdCg
+2026-04-21 17:09:35 - [31mERROR[0m - [TeraBox API] ❌ Request timeout (30s): 
+2026-04-21 17:09:35 - [31mERROR[0m - [User: 0] Error terabox_api_error: Request timeout: 
+2026-04-21 17:09:35 - [33mWARNING[0m - [Channel Forwarder] Failed to fetch info from TeraBox API
+2026-04-21 17:09:35 - [33mWARNING[0m - [ChannelForwarder] ⚠️  1/1 link(s) failed - message will retry on next restart
+2026-04-21 17:09:35 - [32mINFO[0m - [ChannelForwarder] Message details: chat=-1003855414575 msg=3500 media=['📷 PHOTO'] text=215 chars
+2026-04-21 17:09:35 - [32mINFO[0m - [ChannelForwarder] Text-extracted links: 1 found
+2026-04-21 17:09:35 - [32mINFO[0m - [ChannelForwarder] ✅ Found 1 TeraBox link(s)
+2026-04-21 17:09:35 - [32mINFO[0m - [ChannelForwarder] Processing link 1/1: https://1024terabox.com/s/13xKIbUSOGdx2wlQkJ0gZIA
+2026-04-21 17:09:35 - [32mINFO[0m - [Channel Forwarder] Processing TeraBox link: https://1024terabox.com/s/13xKIbUSOGdx2wlQkJ0gZIA
+2026-04-21 17:09:35 - [32mINFO[0m - [Channel Forwarder] Source message ID: 3500, Chat: -1003855414575
+2026-04-21 17:09:35 - [32mINFO[0m - [TeraBox API] Fetching download info for: https://1024terabox.com/s/13xKIbUSOGdx2wlQkJ0gZIA
+2026-04-21 17:10:06 - [31mERROR[0m - [TeraBox API] ❌ Request timeout (30s): 
+2026-04-21 17:10:06 - [31mERROR[0m - [User: 0] Error terabox_api_error: Request timeout: 
+2026-04-21 17:10:06 - [33mWARNING[0m - [Channel Forwarder] Failed to fetch info from TeraBox API
+2026-04-21 17:10:06 - [33mWARNING[0m - [ChannelForwarder] ⚠️  1/1 link(s) failed - message will retry on next restart
+2026-04-21 17:10:06 - [32mINFO[0m - [ChannelForwarder] Message details: chat=-1003855414575 msg=3501 media=['📷 PHOTO'] text=215 chars
+2026-04-21 17:10:06 - [32mINFO[0m - [ChannelForwarder] Text-extracted links: 1 found
+2026-04-21 17:10:06 - [32mINFO[0m - [ChannelForwarder] ✅ Found 1 TeraBox link(s)
+2026-04-21 17:10:06 - [32mINFO[0m - [ChannelForwarder] Processing link 1/1: https://1024terabox.com/s/1zKwXLK6SlaNjCqhrvBA2XQ
+2026-04-21 17:10:06 - [32mINFO[0m - [Channel Forwarder] Processing TeraBox link: https://1024terabox.com/s/1zKwXLK6SlaNjCqhrvBA2XQ
+2026-04-21 17:10:06 - [32mINFO[0m - [Channel Forwarder] Source message ID: 3501, Chat: -1003855414575
+2026-04-21 17:10:06 - [32mINFO[0m - [TeraBox API] Fetching download info for: https://1024terabox.com/s/1zKwXLK6SlaNjCqhrvBA2XQ

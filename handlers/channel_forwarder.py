@@ -17,7 +17,7 @@ import asyncio
 import tempfile
 from pathlib import Path
 from pyrogram import Client, filters, enums
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.types import Message
 import os
 import requests
 import json
@@ -216,7 +216,7 @@ def extract_terabox_links(text: str) -> list:
     return unique_links
 
 
-async def process_terabox_link(client: Client, link: str, source_message: Message, target_chat_id: int, db_channel_id: int):
+async def process_terabox_link(client: Client, link: str, source_message: Message, target_chat_id: int, db_channel_id: int) -> bool:
     """
     Process a TeraBox link: download, backup, and upload with source link button.
     
@@ -226,6 +226,9 @@ async def process_terabox_link(client: Client, link: str, source_message: Messag
         source_message: Original message from source channel
         target_chat_id: Target channel to upload to
         db_channel_id: Database channel for backup
+    
+    Returns:
+        True if link was successfully downloaded and uploaded, False otherwise
     """
     try:
         download_id = re.sub(r'[^a-zA-Z0-9]', '', link[-20:])  # Generate ID from URL
@@ -238,7 +241,7 @@ async def process_terabox_link(client: Client, link: str, source_message: Messag
         
         if not api_data or not api_data.get("direct_link"):
             logger.warning(f"[Channel Forwarder] Failed to fetch info from TeraBox API")
-            return
+            return False
         
         direct_link = api_data.get("direct_link")
         filename = api_data.get("filename", "download")
@@ -251,7 +254,7 @@ async def process_terabox_link(client: Client, link: str, source_message: Messag
         # Check file size limit
         if file_size > settings.max_file_size:
             logger.warning(f"[Channel Forwarder] File too large: {file_size} > {settings.max_file_size}")
-            return
+            return False
         
         # Step 2-3: Download directly from API's direct_link (it's already valid)
         # Don't waste time creating a stream - the API link is ready to use!
@@ -307,9 +310,9 @@ async def process_terabox_link(client: Client, link: str, source_message: Messag
             except Exception as e:
                 logger.warning(f"[Channel Forwarder] Failed to send stub message: {e}")
             
-            # Mark as processed anyway to avoid reprocessing
-            db.mark_message_processed(source_message.chat.id, source_message.id)
-            return
+            # ❌ Return False: message should retry on next restart
+            logger.warning(f"[Channel Forwarder] Download failed, will retry on next bot restart")
+            return False
         
         # Determine image source and prepare thumbnail file if possible.
         thumb_file = None
@@ -611,15 +614,18 @@ async def process_terabox_link(client: Client, link: str, source_message: Messag
                 logger.debug(f"[ChannelForwarder] Failed to delete temp: {e}")
         
         logger.info(f"[ChannelForwarder] ✅ Processing complete for {filename}\n")
+        return True
         
     except Exception as e:
         logger.error(f"[ChannelForwarder] ❌ Error processing TeraBox link: {e}", exc_info=True)
+        return False
 
 
 async def on_channel_message(client: Client, message: Message):
     """
     Handle new messages from source channels.
     Extract TeraBox links and process them one-by-one.
+    Mark as processed ONLY after successful download.
     
     Args:
         client: Pyrogram client
@@ -683,12 +689,14 @@ async def on_channel_message(client: Client, message: Message):
         if terabox_links:
             logger.info(f"[ChannelForwarder] ✅ Found {len(terabox_links)} TeraBox link(s)")
             
-            # Process each link one-by-one (AWAIT for proper error handling)
+            # Process each link one-by-one and collect results
+            results = []
             for i, link in enumerate(terabox_links, start=1):
                 logger.info(f"[ChannelForwarder] Processing link {i}/{len(terabox_links)}: {link}")
                 try:
                     if getattr(settings, 'parallel_processing', False):
                         # Run processing in background tasks (parallel)
+                        logger.warning(f"[ChannelForwarder] ⚠️  Parallel processing ENABLED (NOT RECOMMENDED - can mark before download completes)")
                         asyncio.create_task(process_terabox_link(
                             client=client,
                             link=link,
@@ -696,28 +704,34 @@ async def on_channel_message(client: Client, message: Message):
                             target_chat_id=settings.target_channel,
                             db_channel_id=settings.database_channel
                         ))
+                        results.append(True)  # Assume success for now (fire-and-forget)
                     else:
                         # Default: process sequentially and await completion
-                        await process_terabox_link(
+                        result = await process_terabox_link(
                             client=client,
                             link=link,
                             source_message=message,
                             target_chat_id=settings.target_channel,
                             db_channel_id=settings.database_channel
                         )
+                        results.append(result)
                 except Exception as e:
                     logger.error(f"[ChannelForwarder] ❌ Error processing link {link}: {e}")
-
+                    results.append(False)
+            
+            # ✅ Mark as processed ONLY if ALL links succeeded (results all True)
+            all_succeeded = all(results)
+            if all_succeeded:
+                logger.info(f"[ChannelForwarder] ✅ All {len(terabox_links)} link(s) processed successfully, marking message as done")
+                db.mark_message_processed(message.chat.id, message.id)
+            else:
+                failed_count = sum(1 for r in results if not r)
+                logger.warning(f"[ChannelForwarder] ⚠️  {failed_count}/{len(terabox_links)} link(s) failed - message will retry on next restart")
         
         else:
-            logger.info(f"[ChannelForwarder] No TeraBox links found in message - skipping")
-        
-        # ❌ REMOVED: Don't forward messages without TeraBox links
-        # (This was causing promotional messages to clutter the target channel)
-        # Only focus on messages WITH TeraBox links
-        
-        # Mark message as processed to prevent duplicate processing on bot restart
-        db.mark_message_processed(message.chat.id, message.id)
+            logger.info(f"[ChannelForwarder] No TeraBox links found in message - marking as processed anyway")
+            # Even if no links found, mark as processed to avoid checking this message again
+            db.mark_message_processed(message.chat.id, message.id)
         logger.debug(f"[ChannelForwarder] ✅ Marked message {message.id} as processed")
     
     except Exception as e:
@@ -727,8 +741,8 @@ async def on_channel_message(client: Client, message: Message):
 async def process_existing_messages(client: Client, chat_id: int, limit: int = None):
     """
     Fetch and process existing messages from a channel ONE-BY-ONE.
+    OPTIMIZED: Fetch processed IDs once into memory, then skip efficiently.
     Process each message immediately: fetch → extract links → download → upload.
-    This naturally avoids rate limiting.
     
     Args:
         client: Pyrogram client
@@ -737,6 +751,10 @@ async def process_existing_messages(client: Client, chat_id: int, limit: int = N
     """
     try:
         logger.info(f"[ChannelForwarder] 📚 Processing messages from channel {chat_id}...")
+        
+        # OPTIMIZATION: Get all processed message IDs for this chat into memory (one query)
+        processed_ids_set = db.get_processed_message_ids(chat_id)
+        logger.info(f"[ChannelForwarder] 🚀 Found {len(processed_ids_set)} already-processed messages in DB")
         
         # CRITICAL: Resolve channel entity first (fixes "Peer id invalid" error)
         logger.info(f"[ChannelForwarder] 🔐 Resolving channel entity {chat_id}...")
@@ -783,20 +801,28 @@ async def process_existing_messages(client: Client, chat_id: int, limit: int = N
         # Reverse to process oldest first
         message_ids.reverse()
         
-        logger.info(f"[ChannelForwarder] 🔄 Processing {len(message_ids)} messages one-by-one (oldest first)...")
+        # Filter out already-processed messages (in-memory lookup is instant)
+        new_message_ids = [msg_id for msg_id in message_ids if msg_id not in processed_ids_set]
+        logger.info(f"[ChannelForwarder] 📊 NEW messages to process: {len(new_message_ids)} (skipped {len(message_ids) - len(new_message_ids)} already-processed)")
+        
+        if not new_message_ids:
+            logger.info(f"[ChannelForwarder] ℹ️  No new messages to process")
+            return
+        
+        logger.info(f"[ChannelForwarder] 🔄 Processing {len(new_message_ids)} new messages one-by-one (oldest first)...")
         logger.info(f"[ChannelForwarder] 📥 Fetch → 🔗 Extract → 💾 Download → 📤 Upload → ✅ Mark\n")
         
         message_count = 0
         start_time = asyncio.get_event_loop().time()
         
         # Process one message at a time
-        for idx, msg_id in enumerate(message_ids, start=1):
+        for idx, msg_id in enumerate(new_message_ids, start=1):
             try:
                 # Show progress every 50 messages
                 if idx % 50 == 0:
                     elapsed = asyncio.get_event_loop().time() - start_time
                     rate = idx / elapsed if elapsed > 0 else 0
-                    logger.info(f"[ChannelForwarder] ⏳ {idx}/{len(message_ids)} processed ({elapsed:.0f}s, {rate:.1f} msg/s)...")
+                    logger.info(f"[ChannelForwarder] ⏳ {idx}/{len(new_message_ids)} processed ({elapsed:.0f}s, {rate:.1f} msg/s)...")
                 
                 # Fetch one message
                 message = await client.get_messages(chat_id, msg_id)
@@ -815,7 +841,7 @@ async def process_existing_messages(client: Client, chat_id: int, limit: int = N
                 await asyncio.sleep(0.1)
         
         elapsed = asyncio.get_event_loop().time() - start_time
-        logger.info(f"\n[ChannelForwarder] ✅ Finished! Processed {message_count}/{len(message_ids)} messages in {elapsed:.0f}s\n")
+        logger.info(f"\n[ChannelForwarder] ✅ Finished! Processed {message_count}/{len(new_message_ids)} new messages in {elapsed:.0f}s\n")
         
     except Exception as e:
         logger.error(f"[ChannelForwarder] ❌ Error processing existing messages: {e}", exc_info=True)

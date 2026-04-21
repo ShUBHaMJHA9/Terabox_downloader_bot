@@ -99,12 +99,12 @@ class Settings(BaseSettings):
     enable_channel_forwarding: bool = Field(
         default=False, alias="ENABLE_CHANNEL_FORWARDING"
     )
+    enable_startup_processing: bool = Field(default=False, alias="ENABLE_STARTUP_PROCESSING")
     forward_channel_id: int = Field(default=0, alias="FORWARD_CHANNEL_ID")
     enable_file_caching: bool = Field(default=True, alias="ENABLE_FILE_CACHING")
     cache_directory: str = Field(default="./cache", alias="CACHE_DIRECTORY")
-    parallel_processing: bool = Field(default=True, alias="PARALLEL_PROCESSING")
+    parallel_processing: bool = Field(default=False, alias="PARALLEL_PROCESSING")
     debug: bool = Field(default=False, alias="DEBUG")
-    enable_startup_processing: bool = Field(default=False, alias="ENABLE_STARTUP_PROCESSING")
 
     # ============ Timeout & Limits ============
     download_timeout: int = Field(default=3600, alias="DOWNLOAD_TIMEOUT")

@@ -776,5 +776,47 @@ class DatabaseManager:
         finally:
             conn.close()
 
+    def get_last_processed_message_id(self, chat_id: int) -> int:
+        """Get the highest message ID already processed for a channel (optimization: skip old messages on startup)."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute("""
+                SELECT MAX(message_id) FROM processed_messages
+                WHERE chat_id = ?
+            """, (chat_id,))
+            
+            result = cursor.fetchone()
+            last_id = result[0] if result and result[0] else 0
+            logger.info(f"[DB] Last processed message ID for chat {chat_id}: {last_id}")
+            return last_id
+        except Exception as e:
+            logger.error(f"Error getting last processed message: {e}")
+            return 0
+        finally:
+            conn.close()
+
+    def get_processed_message_ids(self, chat_id: int) -> set:
+        """Get all processed message IDs for a channel as a set (for instant lookup during startup)."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute("""
+                SELECT message_id FROM processed_messages
+                WHERE chat_id = ?
+            """, (chat_id,))
+            
+            rows = cursor.fetchall()
+            processed_ids = set(row[0] for row in rows)
+            logger.info(f"[DB] Loaded {len(processed_ids)} already-processed message IDs for chat {chat_id}")
+            return processed_ids
+        except Exception as e:
+            logger.error(f"Error getting processed message IDs: {e}")
+            return set()
+        finally:
+            conn.close()
+
 # Global database instance
 db = DatabaseManager()

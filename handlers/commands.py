@@ -16,7 +16,6 @@ import asyncio
 
 async def on_start(client: Client, message: Message):
     """Handle /start command."""
-    logger.info(f"[/start] Received /start from user={getattr(message.from_user,'id',None)} chat={getattr(message.chat,'id',None)} text={str(message.text)[:120]}")
     user = message.from_user
     # Add user to database
     db.add_user(user.id, user.username or "", user.first_name or "", user.last_name or "")
@@ -223,14 +222,6 @@ async def on_status(client: Client, message: Message):
         log_action(user.id, "command_status_error", str(e), "ERROR")
 
 
-async def _debug_log_private(client: Client, message: Message):
-    """Temporary debug handler: log all private messages for diagnosis."""
-    try:
-        logger.info(f"[Debug] Private message from={getattr(message.from_user,'id',None)} chat={getattr(message.chat,'id',None)} text={str(message.text)[:200]}")
-    except Exception:
-        logger.exception("[Debug] Failed to log private message")
-
-
 def register_commands(app: Client):
     """Register all basic commands."""
     app.on_message(filters.command("start"))(on_start)
@@ -239,5 +230,19 @@ def register_commands(app: Client):
     app.on_message(filters.command("settings"))(on_settings)
     app.on_message(filters.command("cancel"))(on_cancel)
     app.on_message(filters.command("status"))(on_status)
-    # Temporary: log any private non-service messages to help diagnose missing /start
-    app.on_message(filters.private & ~filters.service)(_debug_log_private)
+    # If debug mode is enabled, register a catch-all message logger to help
+    # diagnose why commands may not be reaching handlers (only for debugging).
+    if settings.debug:
+        async def _debug_log_message(client: Client, message: Message):
+            try:
+                user_id = getattr(message.from_user, "id", None)
+                username = getattr(message.from_user, "username", None)
+                chat_id = getattr(message.chat, "id", None)
+                chat_type = getattr(message.chat, "type", None)
+                text = (message.text or message.caption or "").strip()
+                logger.info(f"[DEBUG] Incoming message: user={user_id} username={username} chat={chat_id} type={chat_type} text={text}")
+            except Exception as e:
+                logger.debug(f"[DEBUG] Error logging incoming message: {e}")
+
+        app.on_message()( _debug_log_message )
+        logger.info("[DEBUG] Registered debug message logger (settings.debug=True)")
