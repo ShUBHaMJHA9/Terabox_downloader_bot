@@ -31,12 +31,19 @@ async def on_start(client: Client, message: Message):
             return
 
         # Try both cached_backups (channel_forwarder) and cached_videos (group_processor)
+        logger.info(f"[/start] Looking for record_id={record_id}")
         record = db.get_cached_by_id(record_id)
-        if not record:
+        if record:
+            logger.info(f"[/start] ✅ Found in cached_backups: {record.get('filename')}")
+        else:
+            logger.info(f"[/start] ⚠️  Not found in cached_backups, trying cached_videos")
             record = db.get_cached_video_by_id(record_id)
+            if record:
+                logger.info(f"[/start] ✅ Found in cached_videos: {record.get('filename')}")
 
         if not record:
-            await message.reply_text("❌ Video not found or not available.")
+            logger.warning(f"[/start] ❌ Record NOT found in either table!")
+            await message.reply_text("❌ Video not found or not available. It may have expired or been deleted.")
             log_action(user.id, "deep_link_missing", str(record_id))
             return
 
@@ -47,6 +54,8 @@ async def on_start(client: Client, message: Message):
         uploader = TelegramUploader(client)
         backup_channel_id = record.get("backup_channel_id")
         backup_message_id = record.get("backup_message_id")
+        
+        logger.info(f"[/start] Record details: channel={backup_channel_id}, message={backup_message_id}")
 
         copied = None
         source_location = "unknown"

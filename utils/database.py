@@ -468,30 +468,48 @@ class DatabaseManager:
         image_src: str = "",
         extra: Optional[Dict] = None,
     ) -> int:
-        """Save a backup record and return its numeric id."""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-
-        try:
-            extra_json = json.dumps(extra or {})
-            cursor.execute(
-                """
-                INSERT INTO cached_backups (
-                    download_id, filename, filesize, backup_channel_id,
-                    backup_message_id, image_src, extra
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (download_id, filename, filesize, backup_channel_id, backup_message_id, image_src, extra_json),
-            )
-            conn.commit()
-            record_id = cursor.lastrowid
-            log_action(0, "backup_saved", f"backup_id={record_id} download_id={download_id}")
-            return record_id
-        except Exception as e:
-            logger.error(f"Error saving backup record: {e}")
-            return 0
-        finally:
-            conn.close()
+        """Save a backup record and return its numeric id. Retries up to 3 times on failure."""
+        max_retries = 3
+        last_error = None
+        
+        for attempt in range(max_retries):
+            try:
+                conn = self.get_connection()
+                cursor = conn.cursor()
+                
+                extra_json = json.dumps(extra or {})
+                cursor.execute(
+                    """
+                    INSERT INTO cached_backups (
+                        download_id, filename, filesize, backup_channel_id,
+                        backup_message_id, image_src, extra
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (download_id, filename, filesize, backup_channel_id, backup_message_id, image_src, extra_json),
+                )
+                conn.commit()
+                record_id = cursor.lastrowid
+                conn.close()
+                
+                logger.info(f"[Database] ✅ Saved backup record (attempt {attempt+1}): id={record_id}, filename={filename}, channel={backup_channel_id}")
+                log_action(0, "backup_saved", f"backup_id={record_id} download_id={download_id}")
+                return record_id
+                
+            except Exception as e:
+                last_error = e
+                logger.warning(f"[Database] ⚠️  Save attempt {attempt+1}/{max_retries} failed: {e}")
+                if attempt < max_retries - 1:
+                    import time
+                    time.sleep(0.5 * (attempt + 1))  # Exponential backoff
+                continue
+            finally:
+                try:
+                    conn.close()
+                except:
+                    pass
+        
+        logger.error(f"[Database] ❌ Failed to save backup record after {max_retries} attempts: {last_error}", exc_info=True)
+        return 0
 
     def get_cached_by_id(self, record_id: int) -> Optional[Dict]:
         """Retrieve a cached backup record by its numeric id."""
@@ -502,8 +520,10 @@ class DatabaseManager:
             cursor.execute("SELECT * FROM cached_backups WHERE id = ?", (record_id,))
             row = cursor.fetchone()
             if not row:
+                logger.warning(f"[Database] ❌ Record {record_id} not found in cached_backups")
                 return None
 
+            logger.info(f"[Database] ✅ Found record {record_id} in cached_backups")
             data = dict(row)
             # Parse JSON extra field
             try:
@@ -513,10 +533,72 @@ class DatabaseManager:
 
             return data
         except Exception as e:
-            logger.error(f"Error fetching cached backup id={record_id}: {e}")
+            logger.error(f"[Database] ❌ Error fetching cached backup id={record_id}: {e}")
             return None
         finally:
             conn.close()
+    
+    def get_all_cached_backups(self) -> List[Dict]:
+        """Get all backup records (for debugging)."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute("SELECT id, filename, backup_channel_id, backup_message_id FROM cached_backups ORDER BY id DESC LIMIT 10")
+            rows = cursor.fetchall()
+            records = [dict(row) for row in rows]
+            logger.info(f"[Database] Found {len(records)} recent backup records: {records}")
+            return records
+        except Exception as e:
+            logger.error(f"[Database] ❌ Error fetching all backups: {e}")
+            return []
+        finally:
+            conn.close()
+
+    def check_database_integrity(self) -> Dict[str, any]:
+        """Check database health and return diagnostic info."""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            diagnostics = {}
+            
+            # Check cached_backups table
+            cursor.execute("SELECT COUNT(*) FROM cached_backups")
+            backups_count = cursor.fetchone()[0]
+            diagnostics['cached_backups_count'] = backups_count
+            
+            # Check cached_videos table
+            cursor.execute("SELECT COUNT(*) FROM cached_videos")
+            videos_count = cursor.fetchone()[0]
+            diagnostics['cached_videos_count'] = videos_count
+            
+            # Check processed_messages table
+            cursor.execute("SELECT COUNT(*) FROM processed_messages")
+            processed_count = cursor.fetchone()[0]
+            diagnostics['processed_messages_count'] = processed_count
+            
+            # Get total size
+            cursor.execute("SELECT SUM(filesize) FROM cached_backups")
+            size_result = cursor.fetchone()
+            total_size = size_result[0] if size_result[0] else 0
+            diagnostics['total_backup_size_mb'] = round(total_size / (1024 * 1024), 2)
+            
+            # Check database file size
+            import os
+            db_path = self.db_file or os.path.expanduser("~/terabox_bot/terabox_bot.db")
+            if os.path.exists(db_path):
+                db_file_size = os.path.getsize(db_path)
+                diagnostics['database_file_size_mb'] = round(db_file_size / (1024 * 1024), 2)
+            
+            conn.close()
+            
+            logger.info(f"[Database] 📊 Integrity Check: {diagnostics}")
+            return diagnostics
+            
+        except Exception as e:
+            logger.error(f"[Database] ❌ Integrity check failed: {e}", exc_info=True)
+            return {}
 
     def get_cached_video_by_id(self, record_id: int) -> Optional[Dict]:
         """Retrieve a cached_videos record by id and normalize keys to cached_backups shape."""

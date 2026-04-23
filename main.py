@@ -93,6 +93,32 @@ class TeraBoxBot:
             logger.info(f"Bot ID: {bot_info.id}")
             logger.info(f"Admins: {settings.admin_ids}")
             
+            # Show available cached records and database diagnostics on startup
+            from utils.database import db
+            
+            # Database integrity check
+            logger.info(f"\n{'='*60}")
+            logger.info(f"🔍 DATABASE DIAGNOSTICS:")
+            logger.info(f"{'='*60}")
+            integrity = db.check_database_integrity()
+            if integrity:
+                logger.info(f"  Cached Backups: {integrity.get('cached_backups_count', 0)} records")
+                logger.info(f"  Cached Videos: {integrity.get('cached_videos_count', 0)} records")
+                logger.info(f"  Processed Messages: {integrity.get('processed_messages_count', 0)} entries")
+                logger.info(f"  Total Backup Size: {integrity.get('total_backup_size_mb', 0)} MB")
+                logger.info(f"  Database File Size: {integrity.get('database_file_size_mb', 0)} MB")
+            
+            # Show recent cache records
+            available_records = db.get_all_cached_backups()
+            if available_records:
+                logger.info(f"\n📦 RECENT CACHED RECORDS:")
+                logger.info(f"{'='*60}")
+                for rec in available_records[:10]:
+                    logger.info(f"  ID {rec['id']:3d}: {rec['filename']}")
+                logger.info(f"{'='*60}\n")
+            else:
+                logger.info("[Startup] ℹ️  No cached records found from previous sessions\n")
+            
             # Optionally process existing messages from source channels after bot is running
             # This can be CPU/IO intensive; disable by default to keep bot responsive.
             if settings.enable_startup_processing:

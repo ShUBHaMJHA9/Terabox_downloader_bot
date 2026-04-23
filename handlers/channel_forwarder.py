@@ -514,7 +514,7 @@ async def process_terabox_link(client: Client, link: str, source_message: Messag
             except Exception as e:
                 logger.warning(f"[ChannelForwarder] ⚠️  Failed to copy to database channel: {e}")
         
-        # Step 6: Save backup record (always, regardless of copy success)
+        # Step 6: Save backup record (CRITICAL - must persist to database)
         record_id = None
         if upload_msg:
             try:
@@ -525,6 +525,9 @@ async def process_terabox_link(client: Client, link: str, source_message: Messag
                 backup_channel_id = db_channel_id if backup_msg else (db_channel_id if db_channel_id else None)
                 backup_message_id = backup_msg.id if backup_msg else None
                 
+                logger.info(f"[ChannelForwarder] 💾 Saving backup record: filename={filename}, channel={backup_channel_id}, msg={backup_message_id}")
+                
+                # save_backup_record now includes retry logic (3 attempts with backoff)
                 record_id = db.save_backup_record(
                     download_id=download_id,
                     filename=filename,
@@ -535,10 +538,31 @@ async def process_terabox_link(client: Client, link: str, source_message: Messag
                     extra={"source_chat_id": source_message.chat.id, "source_message_id": source_message.id}
                 )
                 
-                logger.info(f"[ChannelForwarder] 🎫 Saved backup record: record_id={record_id}")
+                if not record_id or record_id == 0:
+                    logger.error(f"[ChannelForwarder] ❌ Failed to save backup record after all retries - returned 0")
+                    record_id = None
+                else:
+                    # Verify record was actually saved
+                    import time
+                    time.sleep(0.1)  # Brief delay to ensure DB is flushed
+                    verify_record = db.get_cached_by_id(record_id)
+                    if verify_record:
+                        logger.info(f"[ChannelForwarder] ✅ Verified record saved: id={record_id}, filename={verify_record.get('filename')}")
+                    else:
+                        logger.warning(f"[ChannelForwarder] ⚠️  Record {record_id} returned but immediate verification failed - may need delay")
+                        # Try again after a longer delay
+                        import time
+                        time.sleep(0.5)
+                        verify_record = db.get_cached_by_id(record_id)
+                        if verify_record:
+                            logger.info(f"[ChannelForwarder] ✅ Delayed verification succeeded: id={record_id}, filename={verify_record.get('filename')}")
+                        else:
+                            logger.error(f"[ChannelForwarder] ❌ ERROR: Record {record_id} saved but verification failed even after delay - not found in DB!")
+                            record_id = None
                 
             except Exception as e:
-                logger.warning(f"[ChannelForwarder] ⚠️  Failed to save backup record: {e}")
+                logger.error(f"[ChannelForwarder] ❌ Failed to save backup record: {e}", exc_info=True)
+                record_id = None
         
         # Step 7: Post source image with download button to IMAGE_SOURCE_GROUP
         if record_id and upload_msg:
