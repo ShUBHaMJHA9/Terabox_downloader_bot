@@ -464,16 +464,36 @@ async def process_terabox_link(client: Client, link: str, source_message: Messag
         
         upload_msg = None
         try:
-            logger.info(f"[ChannelForwarder] 📤 Uploading video to target channel {target_chat_id}...")
-            upload_msg = await client.send_video(
-                chat_id=target_chat_id,
-                video=str(temp_file),
-                caption=target_caption,
-                thumb=str(thumb_file) if thumb_file and thumb_file.exists() else None,
-                parse_mode=enums.ParseMode.MARKDOWN,
-                reply_markup=keyboard,
-                supports_streaming=True
-            )
+            # Verify the video file exists before uploading
+            if not temp_file.exists() or temp_file.stat().st_size == 0:
+                logger.error(f"[ChannelForwarder] ❌ Video file missing or empty: {temp_file}")
+                logger.info(f"[ChannelForwarder] 💡 Creating stub message with link instead...")
+                try:
+                    stub_caption = f"*{title}*\n\n📊 Size: {format_bytes(file_size)}\n\n⚠️ Upload failed (video file disappeared)\n🔗 [Open in TeraBox]({link})\n\n🤖 Auto message from TeraBox downloader"
+                    stub_msg = await client.send_message(
+                        chat_id=target_chat_id,
+                        text=stub_caption,
+                        parse_mode=enums.ParseMode.MARKDOWN,
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton(text="🔗 Open Link", url=link)
+                        ]])
+                    )
+                    if stub_msg:
+                        logger.info(f"[ChannelForwarder] ✅ Sent stub message with link: msg_id={stub_msg.id}")
+                        upload_msg = stub_msg
+                except Exception as e:
+                    logger.warning(f"[ChannelForwarder] Failed to send stub message: {e}")
+            else:
+                logger.info(f"[ChannelForwarder] 📤 Uploading video to target channel {target_chat_id}...")
+                upload_msg = await client.send_video(
+                    chat_id=target_chat_id,
+                    video=str(temp_file),
+                    caption=target_caption,
+                    thumb=str(thumb_file) if thumb_file and thumb_file.exists() else None,
+                    parse_mode=enums.ParseMode.MARKDOWN,
+                    reply_markup=keyboard,
+                    supports_streaming=True
+                )
             
             if upload_msg:
                 logger.info(f"[ChannelForwarder] ✅ Uploaded to target channel msg_id={upload_msg.id}")
