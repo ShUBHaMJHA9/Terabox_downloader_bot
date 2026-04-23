@@ -586,7 +586,7 @@ class DatabaseManager:
             
             # Check database file size
             import os
-            db_path = self.db_file or os.path.expanduser("~/terabox_bot/terabox_bot.db")
+            db_path = self.db_path or os.path.expanduser("~/terabox_bot/terabox_bot.db")
             if os.path.exists(db_path):
                 db_file_size = os.path.getsize(db_path)
                 diagnostics['database_file_size_mb'] = round(db_file_size / (1024 * 1024), 2)
