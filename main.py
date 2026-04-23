@@ -3,6 +3,7 @@ Main bot application - Initializes and runs the Telegram bot.
 """
 
 import asyncio
+import gc
 from pathlib import Path
 from pyrogram import Client, idle
 from pyrogram.errors import ApiIdInvalid, AccessTokenInvalid
@@ -13,7 +14,7 @@ from handlers.commands import register_commands
 from handlers.admin import register_admin_commands
 from handlers.admin_panel import register_admin_panel
 from handlers.download import register_download_handlers
-from handlers.channel_forwarder import register_channel_forwarder_handlers
+from handlers.channel_forwarder import register_channel_forwarder_handlers, cleanup_temp_files
 from handlers.group_processor import register_group_processor
 from downloader.terabox_api import init_terabox_api
 
@@ -23,6 +24,11 @@ class TeraBoxBot:
 
     def __init__(self):
         """Initialize bot."""
+        # Startup cleanup: remove any leftover temp files from previous runs
+        logger.info("[Startup] 🧹 Cleaning up leftover temporary files...")
+        cleanup_temp_files()
+        gc.collect()
+        
         self.app = None
         self.user_app = None  # User account for accessing message history
         self.setup_client()

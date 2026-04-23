@@ -15,6 +15,8 @@ Flow:
 import re
 import asyncio
 import tempfile
+import shutil
+import gc
 from pathlib import Path
 from pyrogram import Client, filters, enums
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
@@ -28,6 +30,36 @@ from utils.helpers import format_bytes, extract_url_from_text
 from downloader.manager import downloader
 from downloader.terabox_api import get_terabox_api
 from utils.database import db
+
+
+def cleanup_temp_files(temp_dir: Path = None):
+    """
+    Aggressively cleanup temporary files and force garbage collection.
+    
+    Args:
+        temp_dir: If specified, cleanup this directory. Otherwise cleanup default temp.
+    """
+    try:
+        if temp_dir is None:
+            temp_dir = Path(tempfile.gettempdir()) / "terabox_bot"
+        
+        if temp_dir.exists():
+            for file in temp_dir.glob("*"):
+                try:
+                    if file.is_file():
+                        file.unlink()
+                        logger.debug(f"[Cleanup] Deleted: {file}")
+                    elif file.is_dir():
+                        shutil.rmtree(file)
+                        logger.debug(f"[Cleanup] Deleted dir: {file}")
+                except Exception as e:
+                    logger.debug(f"[Cleanup] Failed to delete {file}: {e}")
+        
+        # Force garbage collection
+        gc.collect()
+        logger.debug(f"[Cleanup] ✅ Temp files cleaned and garbage collected")
+    except Exception as e:
+        logger.warning(f"[Cleanup] ⚠️  Error during cleanup: {e}")
 
 
 # Comprehensive list of TeraBox domains and mirrors (2024-2025)
@@ -597,7 +629,7 @@ async def process_terabox_link(client: Client, link: str, source_message: Messag
             except Exception as e:
                 logger.error(f"[ChannelForwarder] ❌ Failed to post image with button: {e}", exc_info=True)
         
-        # Cleanup
+        # Cleanup temporary files
         logger.info(f"[ChannelForwarder] Cleaning up temporary files...")
         if thumb_file and thumb_file.exists():
             try:
@@ -612,6 +644,9 @@ async def process_terabox_link(client: Client, link: str, source_message: Messag
                 logger.debug(f"[ChannelForwarder] Deleted temp: {temp_file}")
             except Exception as e:
                 logger.debug(f"[ChannelForwarder] Failed to delete temp: {e}")
+        
+        # Force cleanup of entire temp directory after processing
+        cleanup_temp_files()
         
         logger.info(f"[ChannelForwarder] ✅ Processing complete for {filename}\n")
         return True
@@ -739,9 +774,19 @@ async def on_channel_message(client: Client, message: Message):
             # Even if no links found, mark as processed to avoid checking this message again
             db.mark_message_processed(message.chat.id, message.id)
         logger.debug(f"[ChannelForwarder] ✅ Marked message {message.id} as processed")
+        
+        # Cleanup after message processing
+        cleanup_temp_files()
+        gc.collect()
     
     except Exception as e:
         logger.error(f"[ChannelForwarder] ❌ Error handling message: {e}", exc_info=True)
+        # Still cleanup on error
+        try:
+            cleanup_temp_files()
+            gc.collect()
+        except Exception:
+            pass
 
 
 async def process_existing_messages(client: Client, chat_id: int, limit: int = None):
@@ -864,6 +909,9 @@ async def process_existing_messages(client: Client, chat_id: int, limit: int = N
                     # Process it (extract links, download, upload)
                     await on_channel_message(client, message)
                     
+                    # Periodic cleanup after every message
+                    cleanup_temp_files()
+                    
                     # Small delay to avoid rate limits
                     await asyncio.sleep(0.1)
                     return True
@@ -885,8 +933,20 @@ async def process_existing_messages(client: Client, chat_id: int, limit: int = N
         elapsed = asyncio.get_event_loop().time() - start_time
         logger.info(f"\n[ChannelForwarder] ✅ Finished! Processed {message_count}/{len(new_message_ids)} new messages in {elapsed:.0f}s (failed: {failed_count})\n")
         
+        # Final cleanup after all messages processed
+        logger.info(f"[ChannelForwarder] 🧹 Final cleanup...")
+        cleanup_temp_files()
+        gc.collect()
+        logger.info(f"[ChannelForwarder] ✅ Cleanup complete")
+        
     except Exception as e:
         logger.error(f"[ChannelForwarder] ❌ Error processing existing messages: {e}", exc_info=True)
+        # Still cleanup on error
+        try:
+            cleanup_temp_files()
+            gc.collect()
+        except Exception:
+            pass
 
 
 def register_channel_forwarder_handlers(app: Client):
