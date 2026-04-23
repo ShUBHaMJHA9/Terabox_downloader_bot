@@ -150,15 +150,115 @@ class TelegramUploader:
             Copied message or None
         """
         try:
+            # Step 1: Resolve source channel peer to fix "Peer id invalid" error
+            logger.debug(f"[TelegramUploader] Resolving source channel {from_chat_id}...")
+            try:
+                await self.client.get_chat(from_chat_id)
+                logger.debug(f"[TelegramUploader] ✅ Source channel resolved")
+            except Exception as resolve_error:
+                logger.warning(f"[TelegramUploader] ⚠️  Failed to resolve source channel: {resolve_error}")
+                logger.debug(f"[TelegramUploader] Attempting to resolve via dialogs...")
+                found = False
+                try:
+                    async for dialog in self.client.get_dialogs():
+                        if dialog.chat and dialog.chat.id == from_chat_id:
+                            logger.debug(f"[TelegramUploader] ✅ Found source in dialogs")
+                            found = True
+                            break
+                except Exception:
+                    pass
+                if not found:
+                    logger.error(f"[TelegramUploader] ❌ Could not resolve source channel {from_chat_id}")
+                    return None
+            
+            # Step 2: Resolve destination channel peer
+            logger.debug(f"[TelegramUploader] Resolving destination channel {channel_id}...")
+            try:
+                await self.client.get_chat(channel_id)
+                logger.debug(f"[TelegramUploader] ✅ Destination channel resolved")
+            except Exception as resolve_error:
+                logger.warning(f"[TelegramUploader] ⚠️  Failed to resolve destination channel: {resolve_error}")
+                logger.debug(f"[TelegramUploader] Attempting to resolve via dialogs...")
+                found = False
+                try:
+                    async for dialog in self.client.get_dialogs():
+                        if dialog.chat and dialog.chat.id == channel_id:
+                            logger.debug(f"[TelegramUploader] ✅ Found destination in dialogs")
+                            found = True
+                            break
+                except Exception:
+                    pass
+                if not found:
+                    logger.error(f"[TelegramUploader] ❌ Could not resolve destination channel {channel_id}")
+                    return None
+            
+            # Step 3: Copy message after both peers are resolved
+            logger.debug(f"[TelegramUploader] Copying message {message_id} from {from_chat_id} to {channel_id}...")
             message = await self.client.copy_message(
                 chat_id=channel_id,
                 from_chat_id=from_chat_id,
                 message_id=message_id
             )
-            logger.info(f"Message copied to channel {channel_id}")
+            logger.info(f"[TelegramUploader] ✅ Message copied to channel {channel_id}")
             return message
         except Exception as e:
-            logger.error(f"Copy message error: {e}")
+            logger.error(f"[TelegramUploader] ❌ Copy message error: {e}", exc_info=True)
+            return None
+
+    async def copy_message_via_bot_api(
+        self,
+        from_chat_id: int,
+        message_id: int,
+        channel_id: int
+    ) -> Optional[dict]:
+        """
+        Copy message using Telegram Bot API instead of Pyrogram (more reliable for channel peers).
+
+        Args:
+            from_chat_id: Source chat ID
+            message_id: Message ID to copy
+            channel_id: Destination channel ID
+
+        Returns:
+            Copied message dict or None
+        """
+        try:
+            import requests
+            
+            bot_token = settings.telegram_bot_token
+            if not bot_token:
+                logger.error(f"[TelegramUploader] ❌ Bot token not configured")
+                return None
+            
+            api_url = f"https://api.telegram.org/bot{bot_token}/copyMessage"
+            
+            # Bot API copyMessage parameters
+            data = {
+                "chat_id": channel_id,
+                "from_chat_id": from_chat_id,
+                "message_id": message_id,
+            }
+            
+            logger.debug(f"[TelegramUploader] Attempting Bot API copy: from {from_chat_id} msg {message_id} to {channel_id}")
+            
+            response = requests.post(api_url, json=data, timeout=30)
+            
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("ok"):
+                    message_data = result.get("result")
+                    logger.info(f"[TelegramUploader] ✅ Message copied via Bot API to channel {channel_id}, msg_id={message_data.get('message_id')}")
+                    return message_data
+                else:
+                    error_desc = result.get("description", "Unknown error")
+                    logger.warning(f"[TelegramUploader] ⚠️  Bot API error: {error_desc}")
+                    return None
+            else:
+                logger.warning(f"[TelegramUploader] ⚠️  Bot API HTTP {response.status_code}: {response.text}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"[TelegramUploader] ❌ Bot API copy error: {e}")
             return None
 
     async def edit_message_text(

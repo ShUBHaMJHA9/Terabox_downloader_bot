@@ -61,14 +61,34 @@ async def on_start(client: Client, message: Message):
         # Attempt to copy from each candidate using the stored backup_message_id
         for source_ch in candidate_sources:
             if not source_ch or not backup_message_id:
+                logger.debug(f"[/start] Skipping invalid source: source_ch={source_ch}, backup_message_id={backup_message_id}")
                 continue
             try:
                 logger.info(f"[/start] Attempting to copy from channel {source_ch} (msg {backup_message_id})...")
+                
+                # Step 1: Try Pyrogram copy first
                 copied = await uploader.copy_message_to_channel(
                     from_chat_id=source_ch,
                     message_id=backup_message_id,
                     channel_id=chat_id
                 )
+                
+                # Step 2: If Pyrogram fails, try Bot API as fallback
+                if not copied:
+                    logger.info(f"[/start] Pyrogram copy failed, trying Bot API fallback...")
+                    api_result = await uploader.copy_message_via_bot_api(
+                        from_chat_id=source_ch,
+                        message_id=backup_message_id,
+                        channel_id=chat_id
+                    )
+                    if api_result:
+                        # Bot API succeeded, create a mock Message-like object
+                        class MockMessage:
+                            def __init__(self, msg_id):
+                                self.id = msg_id
+                        copied = MockMessage(api_result.get("message_id"))
+                        logger.info(f"[/start] ✅ Bot API copy succeeded!")
+                
                 if copied:
                     if source_ch == int(settings.database_channel):
                         source_location = "Database"
@@ -76,8 +96,10 @@ async def on_start(client: Client, message: Message):
                         source_location = f"Channel {source_ch}"
                     logger.info(f"[/start] ✅ Copied from {source_location}")
                     break
+                else:
+                    logger.warning(f"[/start] ⚠️  Both Pyrogram and Bot API copy from {source_ch} failed")
             except Exception as e:
-                logger.debug(f"[/start] Failed to copy from {source_ch}: {e}")
+                logger.warning(f"[/start] Exception during copy attempt from {source_ch}: {e}")
                 continue
         
         if copied:

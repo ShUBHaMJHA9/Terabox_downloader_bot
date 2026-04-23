@@ -632,6 +632,11 @@ async def on_channel_message(client: Client, message: Message):
         message: Incoming message
     """
     try:
+        # Validate that message has required attributes
+        if not message or not message.chat:
+            logger.warning("[ChannelForwarder] ⚠️ Skipping message with missing chat object")
+            return
+        
         # Check if this message was already processed (prevents reprocessing on bot restart)
         if db.is_message_processed(message.chat.id, message.id):
             logger.info(f"[ChannelForwarder] ⏭️  Message already processed (skipping): chat={message.chat.id} msg={message.id}")
@@ -689,24 +694,17 @@ async def on_channel_message(client: Client, message: Message):
         if terabox_links:
             logger.info(f"[ChannelForwarder] ✅ Found {len(terabox_links)} TeraBox link(s)")
             
-            # Process each link one-by-one and collect results
-            results = []
-            for i, link in enumerate(terabox_links, start=1):
-                logger.info(f"[ChannelForwarder] Processing link {i}/{len(terabox_links)}: {link}")
-                try:
-                    if getattr(settings, 'parallel_processing', False):
-                        # Run processing in background tasks (parallel)
-                        logger.warning(f"[ChannelForwarder] ⚠️  Parallel processing ENABLED (NOT RECOMMENDED - can mark before download completes)")
-                        asyncio.create_task(process_terabox_link(
-                            client=client,
-                            link=link,
-                            source_message=message,
-                            target_chat_id=settings.target_channel,
-                            db_channel_id=settings.database_channel
-                        ))
-                        results.append(True)  # Assume success for now (fire-and-forget)
-                    else:
-                        # Default: process sequentially and await completion
+            # Get concurrency limits from config
+            max_concurrent_uploads = getattr(settings, 'max_concurrent_uploads', 2)
+            
+            # Create semaphore to limit concurrent uploads across all links
+            upload_semaphore = asyncio.Semaphore(max_concurrent_uploads)
+            
+            async def process_link_with_limit(i, link):
+                """Process a single TeraBox link with upload concurrency limit."""
+                async with upload_semaphore:
+                    logger.info(f"[ChannelForwarder] Processing link {i}/{len(terabox_links)}: {link}")
+                    try:
                         result = await process_terabox_link(
                             client=client,
                             link=link,
@@ -714,10 +712,18 @@ async def on_channel_message(client: Client, message: Message):
                             target_chat_id=settings.target_channel,
                             db_channel_id=settings.database_channel
                         )
-                        results.append(result)
-                except Exception as e:
-                    logger.error(f"[ChannelForwarder] ❌ Error processing link {link}: {e}")
-                    results.append(False)
+                        return result
+                    except Exception as e:
+                        logger.error(f"[ChannelForwarder] ❌ Error processing link {link}: {e}")
+                        return False
+            
+            # Process all links in PARALLEL with upload concurrency limit
+            logger.info(f"[ChannelForwarder] 🚀 Processing {len(terabox_links)} link(s) in parallel (max {max_concurrent_uploads} concurrent uploads)")
+            tasks = [process_link_with_limit(i, link) for i, link in enumerate(terabox_links, start=1)]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Filter out exceptions in results
+            results = [r for r in results if not isinstance(r, Exception)]
             
             # ✅ Mark as processed ONLY if ALL links succeeded (results all True)
             all_succeeded = all(results)
@@ -753,8 +759,12 @@ async def process_existing_messages(client: Client, chat_id: int, limit: int = N
         logger.info(f"[ChannelForwarder] 📚 Processing messages from channel {chat_id}...")
         
         # OPTIMIZATION: Get all processed message IDs for this chat into memory (one query)
-        processed_ids_set = db.get_processed_message_ids(chat_id)
-        logger.info(f"[ChannelForwarder] 🚀 Found {len(processed_ids_set)} already-processed messages in DB")
+        try:
+            processed_ids_set = db.get_processed_message_ids(chat_id)
+            logger.info(f"[ChannelForwarder] 🚀 Found {len(processed_ids_set)} already-processed messages in DB")
+        except Exception as e:
+            logger.warning(f"[ChannelForwarder] ⚠️  Error getting processed IDs: {e}")
+            processed_ids_set = set()
         
         # CRITICAL: Resolve channel entity first (fixes "Peer id invalid" error)
         logger.info(f"[ChannelForwarder] 🔐 Resolving channel entity {chat_id}...")
@@ -767,14 +777,17 @@ async def process_existing_messages(client: Client, chat_id: int, limit: int = N
             
             # Fallback: search through dialogs to find and resolve the channel
             found = False
-            async for dialog in client.get_dialogs():
-                if dialog.chat.id == chat_id:
-                    logger.info(f"[ChannelForwarder] ✅ Found in dialogs: {dialog.chat.title}")
-                    found = True
-                    break
+            try:
+                async for dialog in client.get_dialogs():
+                    if dialog.chat and dialog.chat.id == chat_id:
+                        logger.info(f"[ChannelForwarder] ✅ Found in dialogs: {dialog.chat.title}")
+                        found = True
+                        break
+            except Exception as dialog_error:
+                logger.warning(f"[ChannelForwarder] ⚠️  Error searching dialogs: {dialog_error}")
             
             if not found:
-                logger.warning(f"[ChannelForwarder] ❌ Channel {chat_id} not found in dialogs")
+                logger.warning(f"[ChannelForwarder] ❌ Channel {chat_id} not found in dialogs - skipping")
                 return
         
         # Collect message IDs only (lightweight, fast)
@@ -784,13 +797,21 @@ async def process_existing_messages(client: Client, chat_id: int, limit: int = N
         
         try:
             async for message in client.get_chat_history(chat_id, limit=limit):
-                message_ids.append(message.id)
-                count += 1
-                if count % 1000 == 0:
-                    logger.info(f"[ChannelForwarder] ⏳ Scanned {count} messages...")
+                try:
+                    if message and hasattr(message, 'id'):
+                        message_ids.append(message.id)
+                        count += 1
+                        if count % 1000 == 0:
+                            logger.info(f"[ChannelForwarder] ⏳ Scanned {count} messages...")
+                except Exception as msg_error:
+                    logger.debug(f"[ChannelForwarder] ⚠️  Error processing message object: {msg_error}")
+                    continue
                     
         except Exception as e:
             logger.warning(f"[ChannelForwarder] ⚠️  Error during ID collection: {e}")
+            if count == 0:
+                logger.warning(f"[ChannelForwarder] ❌ Failed to collect any messages from {chat_id}")
+                return
         
         logger.info(f"[ChannelForwarder] ✅ Found {len(message_ids)} messages total")
         
@@ -812,36 +833,57 @@ async def process_existing_messages(client: Client, chat_id: int, limit: int = N
         logger.info(f"[ChannelForwarder] 🔄 Processing {len(new_message_ids)} new messages one-by-one (oldest first)...")
         logger.info(f"[ChannelForwarder] 📥 Fetch → 🔗 Extract → 💾 Download → 📤 Upload → ✅ Mark\n")
         
-        message_count = 0
+        # Get concurrency limits from config
+        max_concurrent = getattr(settings, 'max_concurrent_downloads', 3)
+        logger.info(f"[ChannelForwarder] 🚀 Parallel processing enabled: max {max_concurrent} concurrent downloads")
+        
+        # Create semaphore to limit concurrent message processing
+        semaphore = asyncio.Semaphore(max_concurrent)
+        
+        async def process_message_with_limit(msg_id):
+            """Process a single message with concurrency limit."""
+            async with semaphore:
+                try:
+                    # Fetch one message
+                    try:
+                        message = await client.get_messages(chat_id, msg_id)
+                    except Exception as e:
+                        logger.debug(f"[ChannelForwarder] ⚠️  Could not fetch msg {msg_id}: {e}")
+                        await asyncio.sleep(0.1)
+                        return False
+                        
+                    if not message:
+                        logger.debug(f"[ChannelForwarder] ⚠️  Message {msg_id} returned None")
+                        return False
+                    
+                    # Validate message has required attributes
+                    if not message.chat:
+                        logger.debug(f"[ChannelForwarder] ⚠️  Message {msg_id} has no chat object")
+                        return False
+                    
+                    # Process it (extract links, download, upload)
+                    await on_channel_message(client, message)
+                    
+                    # Small delay to avoid rate limits
+                    await asyncio.sleep(0.1)
+                    return True
+                        
+                except Exception as e:
+                    logger.warning(f"[ChannelForwarder] ⚠️  Error processing msg {msg_id}: {e}")
+                    await asyncio.sleep(0.1)
+                    return False
+        
         start_time = asyncio.get_event_loop().time()
         
-        # Process one message at a time
-        for idx, msg_id in enumerate(new_message_ids, start=1):
-            try:
-                # Show progress every 50 messages
-                if idx % 50 == 0:
-                    elapsed = asyncio.get_event_loop().time() - start_time
-                    rate = idx / elapsed if elapsed > 0 else 0
-                    logger.info(f"[ChannelForwarder] ⏳ {idx}/{len(new_message_ids)} processed ({elapsed:.0f}s, {rate:.1f} msg/s)...")
-                
-                # Fetch one message
-                message = await client.get_messages(chat_id, msg_id)
-                if not message:
-                    continue
-                
-                # Process it (extract links, download, upload)
-                await on_channel_message(client, message)
-                message_count += 1
-                
-                # Delay between messages to avoid rate limits
-                await asyncio.sleep(0.2)
-                    
-            except Exception as e:
-                logger.warning(f"[ChannelForwarder] ⚠️  Error processing msg {msg_id}: {e}")
-                await asyncio.sleep(0.1)
+        # Process all messages in parallel with concurrency limit
+        tasks = [process_message_with_limit(msg_id) for msg_id in new_message_ids]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        message_count = sum(1 for r in results if r is True)
+        failed_count = sum(1 for r in results if isinstance(r, Exception))
         
         elapsed = asyncio.get_event_loop().time() - start_time
-        logger.info(f"\n[ChannelForwarder] ✅ Finished! Processed {message_count}/{len(new_message_ids)} new messages in {elapsed:.0f}s\n")
+        logger.info(f"\n[ChannelForwarder] ✅ Finished! Processed {message_count}/{len(new_message_ids)} new messages in {elapsed:.0f}s (failed: {failed_count})\n")
         
     except Exception as e:
         logger.error(f"[ChannelForwarder] ❌ Error processing existing messages: {e}", exc_info=True)

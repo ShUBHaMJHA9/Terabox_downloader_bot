@@ -130,12 +130,34 @@ class TeraBoxBot:
             logger.info(f"[StartupProcessor] 🔍 Processing ALL historical messages from source channels...\n")
             
             if settings.source_channels_list:
-                for chat_id in settings.source_channels_list:
-                    logger.info(f"[StartupProcessor] 📚 Starting to fetch ALL messages from {chat_id}...")
-                    logger.info(f"[StartupProcessor] ⏳ This may take a while if there are many messages...")
-                    # Use user account to fetch history, but bot to process/post
-                    await process_existing_messages(self.user_app, chat_id, limit=None)
-                    await asyncio.sleep(1)  # Rate limit between channels
+                logger.info(f"[StartupProcessor] ℹ️  Total channels to process: {len(settings.source_channels_list)}")
+                
+                # Get max concurrent channels from config
+                max_concurrent_channels = getattr(settings, 'max_concurrent_channels', 2)
+                logger.info(f"[StartupProcessor] 🚀 Parallel channel processing enabled: max {max_concurrent_channels} concurrent channels")
+                
+                # Create semaphore to limit concurrent channel processing
+                semaphore = asyncio.Semaphore(max_concurrent_channels)
+                
+                async def process_channel_with_limit(idx, chat_id):
+                    """Process a single channel with concurrency limit."""
+                    async with semaphore:
+                        logger.info(f"[StartupProcessor] 📚 [{idx}/{len(settings.source_channels_list)}] Starting to fetch ALL messages from {chat_id}...")
+                        try:
+                            # Use user account to fetch history, but bot to process/post
+                            await process_existing_messages(self.user_app, chat_id, limit=None)
+                            logger.info(f"[StartupProcessor] ✅ Channel {chat_id} completed")
+                        except Exception as channel_error:
+                            logger.error(f"[StartupProcessor] ❌ Error processing channel {chat_id}: {channel_error}")
+                            logger.info(f"[StartupProcessor] ⏭️  Continuing with next channel...")
+                        await asyncio.sleep(0.5)  # Small delay between channels
+                
+                # Process all channels in parallel with concurrency limit
+                tasks = [
+                    process_channel_with_limit(idx, chat_id) 
+                    for idx, chat_id in enumerate(settings.source_channels_list, start=1)
+                ]
+                await asyncio.gather(*tasks, return_exceptions=True)
             
             logger.info(f"[StartupProcessor] ✅ ALL historical messages processed!\n")
             logger.info(f"[StartupProcessor] 🎯 Now listening for NEW messages...\n")

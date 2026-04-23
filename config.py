@@ -8,6 +8,51 @@ from pathlib import Path
 from typing import List, Union
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, field_validator
+import psutil
+
+
+def calculate_optimal_concurrency():
+    """
+    Auto-detect CPU cores and RAM, calculate optimal concurrency limits.
+    
+    Returns:
+        tuple: (max_concurrent_channels, max_concurrent_downloads, max_concurrent_uploads)
+    """
+    try:
+        cpu_count = psutil.cpu_count(logical=False) or 2  # Physical cores
+        total_ram_gb = psutil.virtual_memory().total / (1024**3)  # Convert to GB
+        
+        # Conservative estimates:
+        # - Each download/upload needs ~100-200MB RAM
+        # - Each channel needs ~50MB RAM
+        
+        # For channels (minimal resource usage)
+        if cpu_count >= 8:
+            max_channels = min(6, int(cpu_count / 2))
+        elif cpu_count >= 4:
+            max_channels = 4
+        else:
+            max_channels = 2
+        
+        # For downloads (more CPU intensive)
+        if cpu_count >= 8:
+            max_downloads = min(5, int(cpu_count / 1.5))
+        elif cpu_count >= 4:
+            max_downloads = 4
+        else:
+            max_downloads = 2
+        
+        # For uploads (constrained by Telegram API limits)
+        if cpu_count >= 8:
+            max_uploads = min(3, int(total_ram_gb / 400))  # ~400MB per upload
+        else:
+            max_uploads = 2
+        
+        return max_channels, max_downloads, max_uploads, cpu_count, total_ram_gb
+        
+    except Exception as e:
+        print(f"⚠️  Failed to detect hardware specs: {e}, using defaults")
+        return 2, 2, 1, 2, 2.0  # Conservative defaults
 
 
 class Settings(BaseSettings):
@@ -55,6 +100,11 @@ class Settings(BaseSettings):
     terabox_api_v1: str = Field(default="", alias="TERABOX_API_V1")
     aria2_connections: int = Field(default=16, alias="ARIA2_CONNECTIONS")
     parallel_threads: int = Field(default=8, alias="PARALLEL_THREADS")
+    
+    # Parallel processing limits (auto-detected from CPU/RAM if not set)
+    max_concurrent_downloads: int = Field(default=0, alias="MAX_CONCURRENT_DOWNLOADS")  # 0 = auto-detect
+    max_concurrent_uploads: int = Field(default=0, alias="MAX_CONCURRENT_UPLOADS")  # 0 = auto-detect
+    max_concurrent_channels: int = Field(default=0, alias="MAX_CONCURRENT_CHANNELS")  # 0 = auto-detect
     
     # Legacy support
     cloudflare_worker_url: str = Field(default="", alias="CLOUDFLARE_WORKER_URL")
@@ -121,7 +171,6 @@ class Settings(BaseSettings):
     
     # Upload optimization
     upload_chunk_size: int = Field(default=1048576, alias="UPLOAD_CHUNK_SIZE")  # 1MB chunks
-    max_concurrent_uploads: int = Field(default=3, alias="MAX_CONCURRENT_UPLOADS")
 
     # ============ API Keys & Tokens ============
     add_api_key: str = Field(default="", alias="ADD_API_KEY")
@@ -159,6 +208,28 @@ class Settings(BaseSettings):
     def __init__(self, **data):
         """Parse comma-separated values after initialization."""
         super().__init__(**data)
+        
+        # Auto-detect concurrency limits from hardware if not explicitly set (= 0)
+        if self.max_concurrent_channels == 0 or self.max_concurrent_downloads == 0 or self.max_concurrent_uploads == 0:
+            auto_channels, auto_downloads, auto_uploads, cpu_count, ram_gb = calculate_optimal_concurrency()
+            
+            if self.max_concurrent_channels == 0:
+                self.max_concurrent_channels = auto_channels
+            if self.max_concurrent_downloads == 0:
+                self.max_concurrent_downloads = auto_downloads
+            if self.max_concurrent_uploads == 0:
+                self.max_concurrent_uploads = auto_uploads
+            
+            print(f"\n{'='*60}")
+            print(f"🚀 AUTO-CONFIGURATION (Hardware Detection)")
+            print(f"{'='*60}")
+            print(f"CPU Cores: {cpu_count}")
+            print(f"RAM: {ram_gb:.1f}GB")
+            print(f"\n⚙️  Parallel Processing Settings:")
+            print(f"  • Max Concurrent Channels: {self.max_concurrent_channels}")
+            print(f"  • Max Concurrent Downloads: {self.max_concurrent_downloads}")
+            print(f"  • Max Concurrent Uploads: {self.max_concurrent_uploads}")
+            print(f"{'='*60}\n")
         
         # Parse admin_ids string to list
         if self.admin_ids:
