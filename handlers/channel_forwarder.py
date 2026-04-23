@@ -17,7 +17,7 @@ import asyncio
 import tempfile
 from pathlib import Path
 from pyrogram import Client, filters, enums
-from pyrogram.types import Message
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 import os
 import requests
 import json
