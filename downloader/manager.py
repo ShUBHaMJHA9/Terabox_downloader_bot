@@ -199,7 +199,7 @@ class TeraBoxDownloader:
                 async with session.post(
                     f"{settings.stream_worker}/data",
                     json=payload,
-                    timeout=aiohttp.ClientTimeout(total=30)
+                    timeout=aiohttp.ClientTimeout(total=120, sock_connect=30, sock_read=30)
                 ) as resp:
                     if resp.status == 200:
                         data = await resp.json()
@@ -217,10 +217,11 @@ class TeraBoxDownloader:
         stream_url: str,
         output_path: Path,
         progress_callback: Optional[Callable] = None,
-        user_id: int = 0
+        user_id: int = 0,
+        max_retries: int = 3
     ) -> bool:
         """
-        Download file from stream URL with progress tracking.
+        Download file from stream URL with progress tracking and retry logic.
         
         Args:
             download_id: Unique download identifier
@@ -228,55 +229,74 @@ class TeraBoxDownloader:
             output_path: Path to save file
             progress_callback: Async callback for progress updates
             user_id: Telegram user ID for logging
+            max_retries: Maximum number of retries on failure
             
         Returns:
             True if successful, False otherwise
         """
-        try:
-            progress = DownloadProgress()
-            self.active_downloads[download_id] = progress
+        for attempt in range(max_retries):
+            try:
+                progress = DownloadProgress()
+                self.active_downloads[download_id] = progress
 
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    stream_url,
-                    timeout=aiohttp.ClientTimeout(total=settings.download_timeout),
-                    headers={
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                    }
-                ) as resp:
-                    if resp.status != 200:
-                        log_error(user_id, "download_http_error", f"Status {resp.status}")
-                        return False
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                        stream_url,
+                        timeout=aiohttp.ClientTimeout(total=None, sock_connect=30, sock_read=60),
+                        headers={
+                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                        }
+                    ) as resp:
+                        if resp.status != 200:
+                            log_error(user_id, "download_http_error", f"Status {resp.status}")
+                            if attempt < max_retries - 1:
+                                wait_time = 2 ** attempt  # Exponential backoff
+                                logger.warning(f"[Download] Retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                                await asyncio.sleep(wait_time)
+                                continue
+                            return False
 
-                    # Get total file size
-                    content_length = resp.headers.get("Content-Length")
-                    if content_length:
-                        progress.total = int(content_length)
+                        # Get total file size
+                        content_length = resp.headers.get("Content-Length")
+                        if content_length:
+                            progress.total = int(content_length)
 
-                    # Download with progress tracking
-                    async with aiofiles.open(output_path, "wb") as f:
-                        async for chunk in resp.content.iter_chunked(1024 * 256):  # 256KB chunks
-                            if not chunk:
-                                break
+                        # Download with progress tracking
+                        async with aiofiles.open(output_path, "wb") as f:
+                            async for chunk in resp.content.iter_chunked(1024 * 256):  # 256KB chunks
+                                if not chunk:
+                                    break
 
-                            await f.write(chunk)
-                            progress.downloaded += len(chunk)
+                                await f.write(chunk)
+                                progress.downloaded += len(chunk)
 
-                            # Call progress callback
-                            if progress_callback:
-                                await progress_callback(progress)
+                                # Call progress callback
+                                if progress_callback:
+                                    await progress_callback(progress)
 
-            log_action(user_id, "download_completed", f"Size: {progress.total}")
-            return True
+                log_action(user_id, "download_completed", f"Size: {progress.total}")
+                return True
 
-        except asyncio.TimeoutError:
-            log_error(user_id, "download_timeout", f"Exceeded {settings.download_timeout}s")
-            return False
-        except Exception as e:
-            log_error(user_id, "download_error", str(e))
-            return False
-        finally:
-            self.active_downloads.pop(download_id, None)
+            except asyncio.TimeoutError as e:
+                error_msg = f"Socket timeout: {e}"
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                    logger.warning(f"[Download] {error_msg}, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                    await asyncio.sleep(wait_time)
+                else:
+                    log_error(user_id, "download_timeout", error_msg)
+                    return False
+            except Exception as e:
+                error_msg = f"{type(e).__name__}: {e}"
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt
+                    logger.warning(f"[Download] {error_msg}, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                    await asyncio.sleep(wait_time)
+                else:
+                    log_error(user_id, "download_error", error_msg)
+                    return False
+            finally:
+                self.active_downloads.pop(download_id, None)
 
     async def download_with_cache(
         self,
